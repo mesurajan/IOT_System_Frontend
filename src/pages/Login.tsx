@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { ShieldCheck, Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
@@ -75,7 +75,7 @@ export default function Login() {
               Detect anomalies across <span className="text-primary glow-text">IoT networks</span> in real time.
             </h1>
             <p className="max-w-md text-sm text-muted-foreground">
-              Continuous traffic monitoring, model-driven detection, and analyst-grade investigation tools — built for security teams, not for terminals.
+              Continuous traffic monitoring, model-driven detection, and analyst-grade investigation tools - built for security teams, not for terminals.
             </p>
             <div className="grid grid-cols-3 gap-3 text-xs">
               {[
@@ -91,7 +91,7 @@ export default function Login() {
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Secured by role-based access · Session expiry · Audit-logged actions
+            Secured by role-based access - Session expiry - Audit-logged actions
           </p>
         </div>
       </div>
@@ -138,7 +138,7 @@ export default function Login() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="********"
                   aria-invalid={!!errors.password}
                 />
                 <button
@@ -180,8 +180,13 @@ export default function Login() {
           </form>
 
           <div className="rounded-md border border-border bg-card/50 p-3 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Demo mode</p>
-            <p className="mt-0.5">Auth mode: <span className="font-mono">{cfg.authMode}</span>. Any username + password (≥4 chars) works in mock mode.</p>
+            <p className="font-medium text-foreground">Authentication mode</p>
+            <p className="mt-0.5">
+              <span className="font-mono">{cfg.authMode}</span>
+              {cfg.authMode === "backend"
+                ? " - login is validated by the Flask backend and Elasticsearch user store."
+                : " - mock auth is enabled for local development."}
+            </p>
           </div>
         </div>
       </div>

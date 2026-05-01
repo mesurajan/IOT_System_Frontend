@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -7,21 +7,23 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppLayout } from "@/components/sentinel/AppLayout";
+import { LoadingBlock } from "@/components/sentinel/States";
 import { useBackendStatus } from "@/lib/hooks";
 import { loadOverrideFromStorage, loadRuntimeConfig } from "@/lib/config";
 
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Alerts from "./pages/Alerts";
-import Logs from "./pages/Logs";
-import Monitoring from "./pages/Monitoring";
-import Retraining from "./pages/Retraining";
-import Models from "./pages/Models";
-import Kibana from "./pages/Kibana";
-import Health from "./pages/Health";
-import Audit from "./pages/Audit";
-import SettingsPage from "./pages/Settings";
-import NotFound from "./pages/NotFound";
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Alerts = lazy(() => import("./pages/Alerts"));
+const Logs = lazy(() => import("./pages/Logs"));
+const ReplayDetection = lazy(() => import("./pages/ReplayDetection"));
+const LiveCapture = lazy(() => import("./pages/LiveCapture"));
+const Retraining = lazy(() => import("./pages/Retraining"));
+const Models = lazy(() => import("./pages/Models"));
+const Kibana = lazy(() => import("./pages/Kibana"));
+const Health = lazy(() => import("./pages/Health"));
+const Audit = lazy(() => import("./pages/Audit"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -48,7 +50,7 @@ const App = () => {
   if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Initializing console…
+        Initializing console...
       </div>
     );
   }
@@ -60,25 +62,28 @@ const App = () => {
         <Sonner theme="dark" richColors closeButton />
         <BrowserRouter>
           <AuthProvider>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/" element={<RootRedirect />} />
+            <Suspense fallback={<div className="p-6"><LoadingBlock label="Loading page..." /></div>}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/" element={<RootRedirect />} />
 
-              <Route path="/dashboard" element={<ProtectedRoute><ShellRoute><Dashboard /></ShellRoute></ProtectedRoute>} />
-              <Route path="/alerts" element={<ProtectedRoute><ShellRoute><Alerts /></ShellRoute></ProtectedRoute>} />
-              <Route path="/logs" element={<ProtectedRoute><ShellRoute><Logs /></ShellRoute></ProtectedRoute>} />
-              <Route path="/kibana" element={<ProtectedRoute><ShellRoute><Kibana /></ShellRoute></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><ShellRoute><SettingsPage /></ShellRoute></ProtectedRoute>} />
+                <Route path="/dashboard" element={<ProtectedRoute><ShellRoute><Dashboard /></ShellRoute></ProtectedRoute>} />
+                <Route path="/alerts" element={<ProtectedRoute><ShellRoute><Alerts /></ShellRoute></ProtectedRoute>} />
+                <Route path="/logs" element={<ProtectedRoute><ShellRoute><Logs /></ShellRoute></ProtectedRoute>} />
+                <Route path="/kibana" element={<ProtectedRoute><ShellRoute><Kibana /></ShellRoute></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><ShellRoute><SettingsPage /></ShellRoute></ProtectedRoute>} />
 
-              {/* Admin only */}
-              <Route path="/monitoring" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Monitoring /></ShellRoute></ProtectedRoute>} />
-              <Route path="/retraining" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Retraining /></ShellRoute></ProtectedRoute>} />
-              <Route path="/models" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Models /></ShellRoute></ProtectedRoute>} />
-              <Route path="/health" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Health /></ShellRoute></ProtectedRoute>} />
-              <Route path="/audit" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Audit /></ShellRoute></ProtectedRoute>} />
+                <Route path="/monitoring" element={<Navigate to="/detection" replace />} />
+                <Route path="/detection" element={<ProtectedRoute roles={["admin"]}><ShellRoute><ReplayDetection /></ShellRoute></ProtectedRoute>} />
+                <Route path="/live-capture" element={<ProtectedRoute roles={["admin"]}><ShellRoute><LiveCapture /></ShellRoute></ProtectedRoute>} />
+                <Route path="/retraining" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Retraining /></ShellRoute></ProtectedRoute>} />
+                <Route path="/models" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Models /></ShellRoute></ProtectedRoute>} />
+                <Route path="/health" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Health /></ShellRoute></ProtectedRoute>} />
+                <Route path="/audit" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Audit /></ShellRoute></ProtectedRoute>} />
 
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>

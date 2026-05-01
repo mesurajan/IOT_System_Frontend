@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Check, RefreshCw, ShieldAlert, ShieldX, Download } from "lucide-react";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { getConfig } from "@/lib/config";
 import { useAuth } from "@/auth/AuthContext";
 import { LoadingBlock, BackendUnavailable, EmptyState } from "@/components/sentinel/States";
 import { SeverityBadge, StatusBadge } from "@/components/sentinel/Badges";
+import { TimeRangePicker, rangeLabel } from "@/components/sentinel/TimeRangePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,7 +22,8 @@ import type { AlertItem, AlertSeverity } from "@/lib/types";
 export default function Alerts() {
   const cfg = getConfig();
   const { user } = useAuth();
-  const { data, loading, degraded, refresh } = usePolling(() => sentinel.alerts(cfg.defaultLimit), 12000, [cfg.defaultLimit]);
+  const [rangeMinutes, setRangeMinutes] = useState(15);
+  const { data, loading, degraded, refresh } = usePolling(() => sentinel.alerts(cfg.defaultLimit, rangeMinutes), 12000, [cfg.defaultLimit, rangeMinutes]);
   const [search, setSearch] = useState("");
   const [severity, setSeverity] = useState<AlertSeverity | "all">("all");
   const [protocol, setProtocol] = useState<string>("all");
@@ -69,6 +71,7 @@ export default function Alerts() {
           <p className="text-sm text-muted-foreground">Investigate, acknowledge, and label detection events.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <TimeRangePicker rangeMinutes={rangeMinutes} onRangeChange={setRangeMinutes} onRefresh={refresh} />
           <Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4" /> Refresh</Button>
           <Button variant="outline" size="sm" onClick={exportCsv}><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
         </div>
@@ -77,7 +80,7 @@ export default function Alerts() {
       {degraded && <BackendUnavailable feature="Alerts API" />}
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
-        <Input placeholder="Search IP or description…" value={search} onChange={e => setSearch(e.target.value)} className="w-72" />
+        <Input placeholder="Search IP or description..." value={search} onChange={e => setSearch(e.target.value)} className="w-72" />
         <Select value={severity} onValueChange={(v) => setSeverity(v as AlertSeverity | "all")}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Severity" /></SelectTrigger>
           <SelectContent>
@@ -95,7 +98,7 @@ export default function Alerts() {
             {protocols.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
           </SelectContent>
         </Select>
-        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} of {data?.length ?? 0}</span>
+        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} of {data?.length ?? 0} - {rangeLabel(rangeMinutes)}</span>
       </div>
 
       <div className="rounded-lg border border-border bg-card">
@@ -107,7 +110,7 @@ export default function Alerts() {
                   <TableHead>Time</TableHead>
                   <TableHead>Severity</TableHead>
                   <TableHead>Protocol</TableHead>
-                  <TableHead>Source → Destination</TableHead>
+                  <TableHead>Source to Destination</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -119,7 +122,7 @@ export default function Alerts() {
                     <TableCell className="whitespace-nowrap font-mono text-xs">{format(new Date(a.timestamp), "yyyy-MM-dd HH:mm:ss")}</TableCell>
                     <TableCell><SeverityBadge severity={a.severity} /></TableCell>
                     <TableCell className="font-mono text-xs">{a.protocol}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{a.sourceIp} → {a.destinationIp}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{a.sourceIp} {"->"} {a.destinationIp}</TableCell>
                     <TableCell className="max-w-[320px] truncate text-sm">{a.description}</TableCell>
                     <TableCell><StatusBadge status={a.status} /></TableCell>
                     <TableCell className="text-right">
@@ -145,7 +148,7 @@ export default function Alerts() {
           )}
       </div>
       {user?.role === "analyst" && (
-        <p className="text-xs text-muted-foreground">Analyst view — destructive operational actions are restricted to admins.</p>
+        <p className="text-xs text-muted-foreground">Analyst view - destructive operational actions are restricted to admins.</p>
       )}
     </div>
   );

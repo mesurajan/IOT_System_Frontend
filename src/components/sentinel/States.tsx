@@ -1,7 +1,7 @@
-import { Loader2 } from "lucide-react";
+﻿import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function LoadingBlock({ className, label = "Loading…" }: { className?: string; label?: string }) {
+export function LoadingBlock({ className, label = "Loading..." }: { className?: string; label?: string }) {
   return (
     <div className={cn("flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-secondary/30 p-8 text-sm text-muted-foreground", className)}>
       <Loader2 className="h-4 w-4 animate-spin" />
@@ -23,7 +23,7 @@ export function EmptyState({ title, description, action }: { title: string; desc
 export function BackendUnavailable({ feature }: { feature: string }) {
   return (
     <div className="rounded-md border border-warning/40 bg-warning/10 p-4 text-sm">
-      <p className="font-medium text-warning">{feature} — backend not available yet</p>
+      <p className="font-medium text-warning">{feature} - backend not available yet</p>
       <p className="mt-1 text-xs text-muted-foreground">
         Showing demo data. Connect the API in <span className="font-mono">Settings</span> or set
         <span className="font-mono"> VITE_API_BASE_URL</span> in your <span className="font-mono">.env</span> file.

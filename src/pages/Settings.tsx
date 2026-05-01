@@ -1,6 +1,7 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
+import { sentinel } from "@/lib/sentinel";
 import { applyOverride, getConfig, getConfigState, loadRuntimeConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,11 @@ export default function Settings() {
   const save = async () => {
     applyOverride({ apiBaseUrl: api.trim(), kibanaUrl: kibana.trim() });
     await loadRuntimeConfig();
+    await sentinel.recordAudit({
+      action: "settings.update",
+      target: "runtime-endpoints",
+      detail: { apiBaseUrl: api.trim(), kibanaUrl: kibana.trim() },
+    });
     toast.success("Settings updated");
   };
 
@@ -73,7 +79,7 @@ function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-3 py-2">
       <span className="text-muted-foreground">{k}</span>
-      <span className="font-mono">{v || "—"}</span>
+      <span className="font-mono">{v || "-"}</span>
     </div>
   );
 }

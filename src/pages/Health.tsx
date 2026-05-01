@@ -1,4 +1,4 @@
-import { sentinel } from "@/lib/sentinel";
+﻿import { sentinel } from "@/lib/sentinel";
 import { usePolling } from "@/lib/hooks";
 import { StatCard } from "@/components/sentinel/StatCard";
 import { LoadingBlock } from "@/components/sentinel/States";
@@ -51,9 +51,9 @@ export default function Health() {
         <p className="text-xs uppercase tracking-wider text-muted-foreground">Uptime</p>
         <p className="mt-1 font-mono text-lg">{days}d {hours}h</p>
         <p className="mt-2 text-xs text-muted-foreground">
-          API: <span className={stateClass[data.api]}>{data.api}</span> ·
-          Ingest: <span className={stateClass[data.ingest]}> {data.ingest}</span> ·
-          Model: <span className={stateClass[data.modelService]}> {data.modelService}</span> ·
+          API: <span className={stateClass[data.api]}>{data.api}</span> -
+          Ingest: <span className={stateClass[data.ingest]}> {data.ingest}</span> -
+          Model: <span className={stateClass[data.modelService]}> {data.modelService}</span> -
           Kibana: <span className={stateClass[data.kibana]}> {data.kibana}</span>
         </p>
       </section>

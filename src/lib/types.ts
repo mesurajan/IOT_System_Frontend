@@ -66,6 +66,61 @@ export interface ModelInfo {
   datasetName: string;
 }
 
+export interface DatasetInfo {
+  id: string;
+  name: string;
+  filename: string;
+  source: "preset" | "uploaded";
+  path: string;
+  sizeBytes: number;
+  updatedAt: string;
+}
+
+export interface TrainingJob {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  version?: string;
+  error?: string;
+  logs?: string;
+  model?: ModelInfo;
+}
+
+export interface ModelAlgorithm {
+  id: "random_forest" | "tensorflow" | "xgboost" | "lightgbm";
+  name: string;
+  available: boolean;
+  note: string;
+}
+
+export interface DetectionJob {
+  jobId: string;
+  mode: "dataset" | "wireshark";
+  status: "queued" | "running" | "completed" | "failed" | "stopped";
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  logs?: string;
+  modelVersion?: string;
+  modelAlgorithm?: string;
+  modelDataset?: string;
+}
+
+export interface WiresharkInterface {
+  id: string;
+  name: string;
+}
+
+export interface WiresharkInterfaceResponse {
+  available: boolean;
+  message?: string;
+  tsharkPath?: string;
+  interfaces: WiresharkInterface[];
+}
+
 export interface AuditEntry {
   id: string;
   timestamp: string;

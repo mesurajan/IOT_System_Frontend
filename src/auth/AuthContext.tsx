@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, ApiError, ApiUnavailableError, setAuthToken } from "@/lib/api";
+import { api, ApiError, setAuthToken } from "@/lib/api";
 import { getConfig } from "@/lib/config";
 import type { Role, User } from "@/lib/types";
 
@@ -56,18 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let resolved: User;
       let token = "";
       if (cfg.authMode === "backend") {
-        try {
-          const data = await api.post<{ token: string; user: User }>("/api/auth/login", { username, password, role });
-          resolved = data.user;
-          token = data.token;
-        } catch (err) {
-          if (err instanceof ApiUnavailableError) {
-            // graceful fallback to mock if backend unreachable
-            if (!username || !password) throw new ApiError("Username and password required", 400);
-            resolved = { id: username, username, displayName: username, role };
-            token = `mock-${Date.now()}`;
-          } else throw err;
-        }
+        const data = await api.post<{ token: string; user: User }>("/api/auth/login", { username, password, role });
+        resolved = data.user;
+        token = data.token;
       } else {
         if (!username || !password) throw new ApiError("Username and password required", 400);
         if (password.length < 4) throw new ApiError("Invalid credentials", 401);
@@ -85,11 +76,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    const actor = user?.username;
+    if (actor) {
+      api.post("/api/audit/events", { action: "user.logout", target: actor }).catch(() => {
+        /* best-effort audit */
+      });
+    }
     setUser(null);
     setAuthToken(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(EXPIRY_KEY);
-  }, []);
+  }, [user]);
 
   const value = useMemo<AuthState>(() => ({ user, loading, login, logout }), [user, loading, login, logout]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

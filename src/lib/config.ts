@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Centralized runtime config.
  * Loads env first, then optionally overrides from `/api/config` at startup.
  * Never read import.meta.env directly inside components.
@@ -100,7 +100,7 @@ export async function loadRuntimeConfig(): Promise<ConfigState> {
     };
     _state = { config: merged, source: "backend", errors: _state?.errors ?? [] };
   } catch {
-    /* ignore — keep env-based config */
+    /* ignore - keep env-based config */
   }
   return getConfigState();
 }

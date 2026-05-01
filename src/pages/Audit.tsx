@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+﻿import { format } from "date-fns";
 import { sentinel } from "@/lib/sentinel";
 import { usePolling } from "@/lib/hooks";
 import { LoadingBlock } from "@/components/sentinel/States";
@@ -34,7 +34,7 @@ export default function Audit() {
                   <TableCell className="font-mono text-xs whitespace-nowrap">{format(new Date(e.timestamp), "yyyy-MM-dd HH:mm:ss")}</TableCell>
                   <TableCell className="font-medium">{e.actor}</TableCell>
                   <TableCell className="font-mono text-xs">{e.action}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{e.target ?? "—"}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{e.target ?? "-"}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={e.outcome === "success" ? "border-success/40 text-success" : "border-destructive/40 text-destructive"}>
                       {e.outcome}

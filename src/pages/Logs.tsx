@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Download, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { sentinel } from "@/lib/sentinel";
 import { usePolling } from "@/lib/hooks";
 import { getConfig } from "@/lib/config";
 import { LoadingBlock, BackendUnavailable, EmptyState } from "@/components/sentinel/States";
+import { TimeRangePicker, rangeLabel } from "@/components/sentinel/TimeRangePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,7 +19,8 @@ import {
 export default function Logs() {
   const cfg = getConfig();
   const [limit, setLimit] = useState<number>(cfg.defaultLimit);
-  const { data, loading, degraded, refresh } = usePolling(() => sentinel.logs(limit), 15000, [limit]);
+  const [rangeMinutes, setRangeMinutes] = useState(15);
+  const { data, loading, degraded, refresh } = usePolling(() => sentinel.logs(limit, rangeMinutes), 15000, [limit, rangeMinutes]);
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState<"all" | "normal" | "anomaly">("all");
   const [protocol, setProtocol] = useState("all");
@@ -55,7 +57,8 @@ export default function Logs() {
           <h1 className="text-2xl font-semibold tracking-tight">Traffic Logs</h1>
           <p className="text-sm text-muted-foreground">Inspect classified flows from the detection pipeline.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <TimeRangePicker rangeMinutes={rangeMinutes} onRangeChange={setRangeMinutes} onRefresh={refresh} />
           <Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>
           <Button variant="outline" size="sm" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
         </div>
@@ -64,7 +67,7 @@ export default function Logs() {
       {degraded && <BackendUnavailable feature="Logs API" />}
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
-        <Input placeholder="Search IP…" value={search} onChange={e => setSearch(e.target.value)} className="w-64" />
+        <Input placeholder="Search IP..." value={search} onChange={e => setSearch(e.target.value)} className="w-64" />
         <Select value={classFilter} onValueChange={(v) => setClassFilter(v as "all" | "normal" | "anomaly")}>
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -86,7 +89,7 @@ export default function Logs() {
             {[25, 50, 100, 200, 500].map(n => <SelectItem key={n} value={String(n)}>Limit {n}</SelectItem>)}
           </SelectContent>
         </Select>
-        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} rows</span>
+        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} rows - {rangeLabel(rangeMinutes)}</span>
       </div>
 
       <div className="rounded-lg border border-border bg-card">

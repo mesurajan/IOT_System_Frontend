@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { sentinel } from "@/lib/sentinel";
-import { ApiUnavailableError } from "@/lib/api";
+import { ApiUnavailableError, getAuthToken } from "@/lib/api";
 import { getConfig } from "@/lib/config";
 
 /** Track backend reachability via /api/health polling. */
@@ -17,7 +17,11 @@ export function useBackendStatus(intervalMs = 15000) {
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 3500);
-        const res = await fetch(`${cfg.apiBaseUrl}/api/health`, { signal: ctrl.signal });
+        const token = getAuthToken();
+        const res = await fetch(`${cfg.apiBaseUrl}/api/health`, {
+          signal: ctrl.signal,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         clearTimeout(t);
         if (!cancelled) setOnline(res.ok);
       } catch {

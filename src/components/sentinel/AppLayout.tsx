@@ -1,16 +1,18 @@
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+﻿import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity, AlertTriangle, ScrollText, Cpu, BarChart3,
   Settings, History, ShieldCheck, LogOut, ChevronLeft,
-  Database, HeartPulse, Layers,
+  Database, HeartPulse, Layers, RadioTower, PlaySquare, Bell,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { RoleBadge } from "./Badges";
 import { getConfig } from "@/lib/config";
+import { sentinel } from "@/lib/sentinel";
+import { usePolling } from "@/lib/hooks";
 
 interface NavItem { to: string; label: string; icon: ReactNode; roles?: ("admin" | "analyst")[]; }
 
@@ -18,7 +20,8 @@ const NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: <Activity className="h-4 w-4" /> },
   { to: "/alerts", label: "Alerts", icon: <AlertTriangle className="h-4 w-4" /> },
   { to: "/logs", label: "Logs", icon: <ScrollText className="h-4 w-4" /> },
-  { to: "/monitoring", label: "Monitoring", icon: <BarChart3 className="h-4 w-4" />, roles: ["admin"] },
+  { to: "/detection", label: "Replay Detection", icon: <PlaySquare className="h-4 w-4" />, roles: ["admin"] },
+  { to: "/live-capture", label: "Live Capture", icon: <RadioTower className="h-4 w-4" />, roles: ["admin"] },
   { to: "/retraining", label: "Retraining", icon: <Cpu className="h-4 w-4" />, roles: ["admin"] },
   { to: "/models", label: "Model Management", icon: <Layers className="h-4 w-4" />, roles: ["admin"] },
   { to: "/kibana", label: "Kibana", icon: <BarChart3 className="h-4 w-4" /> },
@@ -33,6 +36,41 @@ export function AppLayout({ children, online }: { children: ReactNode; online: b
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const cfg = getConfig();
+  const isAdmin = user?.role === "admin";
+  const [lastSeenAt, setLastSeenAt] = useState(() => {
+    const stored = localStorage.getItem("sentinel.alerts.lastSeenAt");
+    return stored ? Number(stored) : 0;
+  });
+  const alertPoll = usePolling(
+    () => isAdmin
+      ? sentinel.alerts(Math.max(10, cfg.defaultLimit))
+      : Promise.resolve({ data: [], degraded: false }),
+    5000,
+    [isAdmin, cfg.defaultLimit]
+  );
+  const markAlertsSeen = () => {
+    const ts = Date.now();
+    setLastSeenAt(ts);
+    localStorage.setItem("sentinel.alerts.lastSeenAt", String(ts));
+  };
+  useEffect(() => {
+    if (location.pathname === "/alerts") markAlertsSeen();
+  }, [location.pathname]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const handler = () => { alertPoll.refresh(); };
+    window.addEventListener("sentinel:alerts-changed", handler);
+    return () => window.removeEventListener("sentinel:alerts-changed", handler);
+  }, [isAdmin, alertPoll.refresh]);
+  const unreadAlerts = useMemo(() => {
+    if (!online || alertPoll.degraded) return 0;
+    return (alertPoll.data ?? []).filter(item => {
+      if (item.status !== "open") return false;
+      const ts = new Date(item.timestamp).getTime();
+      return Number.isFinite(ts) && ts > lastSeenAt;
+    }).length;
+  }, [alertPoll.data, alertPoll.degraded, lastSeenAt, online]);
+  const alertBadge = unreadAlerts > 99 ? "99+" : String(unreadAlerts);
 
   const visibleNav = NAV.filter(n => !n.roles || (user && n.roles.includes(user.role)));
 
@@ -94,10 +132,28 @@ export function AppLayout({ children, online }: { children: ReactNode; online: b
             </div>
             <div className="leading-tight">
               <p className="text-sm font-semibold">{currentTitle(location.pathname)}</p>
-              <p className="hidden text-xs text-muted-foreground sm:block">{cfg.appName} · Real-Time Anomaly Detection</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">{cfg.appName} - Real-Time Anomaly Detection</p>
             </div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
+            {isAdmin && (
+              <NavLink
+                to="/alerts"
+                className={({ isActive }) => cn(
+                  "relative grid h-9 w-9 place-items-center rounded-md border border-border bg-secondary/50 text-muted-foreground transition-colors",
+                  isActive ? "text-foreground" : "hover:text-foreground"
+                )}
+                aria-label={unreadAlerts > 0 ? `Alerts (${alertBadge} new)` : "Alerts"}
+                onClick={markAlertsSeen}
+              >
+                <Bell className="h-4 w-4" />
+                {unreadAlerts > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold leading-none text-destructive-foreground">
+                    {alertBadge}
+                  </span>
+                )}
+              </NavLink>
+            )}
             <ConnectionStatus online={online} />
             {user && (
               <div className="hidden items-center gap-2 rounded-md border border-border bg-secondary/50 px-2.5 py-1 sm:flex">
@@ -144,6 +200,8 @@ function currentTitle(pathname: string): string {
     "/alerts": "Alerts",
     "/logs": "Logs",
     "/monitoring": "Monitoring Control",
+    "/detection": "Replay Detection",
+    "/live-capture": "Live Capture",
     "/retraining": "Model Retraining",
     "/models": "Model Management",
     "/kibana": "Kibana",
