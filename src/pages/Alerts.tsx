@@ -76,7 +76,7 @@ useEffect(() => {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Alerts</h1>
-          <p className="text-sm text-muted-foreground">Investigate, acknowledge, and label detection event.</p>
+          <p className="text-sm text-muted-foreground">Investigate, acknowledge, and label detection events.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <TimeRangePicker rangeMinutes={rangeMinutes} onRangeChange={setRangeMinutes} onRefresh={refresh} />
