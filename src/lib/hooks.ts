@@ -14,9 +14,13 @@ export function useBackendStatus(intervalMs = 15000) {
     if (!cfg.apiBaseUrl) { setOnline(false); setChecked(true); return; }
 
     const ping = async () => {
+      let aborted = false;
       try {
         const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 3500);
+        const t = setTimeout(() => {
+          aborted = true;
+          ctrl.abort();
+        }, 3500);
         const token = getAuthToken();
         const res = await fetch(`${cfg.apiBaseUrl}/api/health`, {
           signal: ctrl.signal,
@@ -24,10 +28,11 @@ export function useBackendStatus(intervalMs = 15000) {
         });
         clearTimeout(t);
         if (!cancelled) setOnline(res.ok);
-      } catch {
+      } catch (error) {
+        if ((error as Error).name === "AbortError") return;
         if (!cancelled) setOnline(false);
       } finally {
-        if (!cancelled) setChecked(true);
+        if (!cancelled && !aborted) setChecked(true);
       }
     };
     ping();

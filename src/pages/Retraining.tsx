@@ -6,9 +6,13 @@ import { confirmAdminAction } from "@/lib/adminActionToast";
 import { sentinel } from "@/lib/sentinel";
 import { usePolling } from "@/lib/hooks";
 import type { TrainingJob } from "@/lib/types";
+import { ApiUnavailableError } from "@/lib/api";
+import { getAuthToken } from "@/lib/api";
+import { getConfig } from "@/lib/config";
 import { StatCard } from "@/components/sentinel/StatCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,20 +26,149 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Progress } from "@/components/ui/progress";
 
 const TRAINING_JOB_KEY = "sentinel.activeTrainingJobId";
+const SELECTED_DATASET_KEY = "sentinel.selectedDatasetId";
+const SELECTED_ALGORITHM_KEY = "sentinel.selectedAlgorithm";
+const MULTI_DATASET_MODE_KEY = "sentinel.multiDatasetMode";
+const MULTI_DATASET_IDS_KEY = "sentinel.selectedDatasetIds";
 const FINISHED_STATUSES = ["completed", "failed"];
+
+function parseSseEventChunk(chunk: string): Array<{ event: string; data: string }> {
+  return chunk
+    .split(/\n\n+/)
+    .map(block => block.trim())
+    .filter(Boolean)
+    .map(block => {
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of block.split(/\n/)) {
+        if (line.startsWith("event:")) {
+          event = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      return { event, data: dataLines.join("\n") };
+    });
+}
 
 export default function Retraining() {
   const current = usePolling(() => sentinel.currentModel(), 5000);
   const history = usePolling(() => sentinel.modelHistory(), 5000);
   const datasets = usePolling(() => sentinel.datasets(), 0);
   const algorithms = usePolling(() => sentinel.algorithms(), 0);
-  const [datasetId, setDatasetId] = useState("");
-  const [algorithm, setAlgorithm] = useState("random_forest");
+  const [datasetId, setDatasetId] = useState(() => localStorage.getItem(SELECTED_DATASET_KEY) ?? "");
+  const [algorithm, setAlgorithm] = useState(() => localStorage.getItem(SELECTED_ALGORITHM_KEY) ?? "random_forest");
+  const [multiDatasetMode, setMultiDatasetMode] = useState(() => localStorage.getItem(MULTI_DATASET_MODE_KEY) === "true");
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(MULTI_DATASET_IDS_KEY);
+      return raw ? (JSON.parse(raw) as string[]).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  });
   const [job, setJob] = useState<TrainingJob | null>(null);
   const [busy, setBusy] = useState<"upload" | "preprocess" | "train" | "promote" | "delete" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const datasetRestorePending = useRef(true);
+  const algorithmRestorePending = useRef(true);
+  const ignoreNextPopstateRef = useRef(false);
+  const activeTraining = Boolean(job?.jobId && !FINISHED_STATUSES.includes(job.status));
+  const leaveWarningMessage = "Training is still running. Are you sure you want to leave the page?";
+
+  useEffect(() => {
+    if (datasetId) {
+      localStorage.setItem(SELECTED_DATASET_KEY, datasetId);
+    }
+  }, [datasetId]);
+
+  useEffect(() => {
+    if (algorithm) {
+      localStorage.setItem(SELECTED_ALGORITHM_KEY, algorithm);
+    }
+  }, [algorithm]);
+
+  useEffect(() => {
+    localStorage.setItem(MULTI_DATASET_MODE_KEY, String(multiDatasetMode));
+  }, [multiDatasetMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MULTI_DATASET_IDS_KEY, JSON.stringify(selectedDatasetIds));
+    } catch {
+      /* ignore storage failures */
+    }
+  }, [selectedDatasetIds]);
+
+  useEffect(() => {
+    const availableDatasetIds = new Set((datasets.data ?? []).map(item => item.id));
+    if (datasetId && availableDatasetIds.has(datasetId)) {
+      datasetRestorePending.current = false;
+      return;
+    }
+
+    if (!datasets.data?.length && datasetRestorePending.current) {
+      return;
+    }
+
+    const persistedDatasetId = localStorage.getItem(SELECTED_DATASET_KEY);
+    if (persistedDatasetId && availableDatasetIds.has(persistedDatasetId)) {
+      setDatasetId(persistedDatasetId);
+      datasetRestorePending.current = false;
+      return;
+    }
+
+    const fallbackDatasetId = datasets.data?.[0]?.id ?? "";
+    setDatasetId(fallbackDatasetId);
+    datasetRestorePending.current = false;
+    if (fallbackDatasetId) {
+      localStorage.setItem(SELECTED_DATASET_KEY, fallbackDatasetId);
+    } else {
+      localStorage.removeItem(SELECTED_DATASET_KEY);
+    }
+  }, [datasetId, datasets.data]);
+
+  useEffect(() => {
+    if (!multiDatasetMode) return;
+    const availableDatasetIds = new Set((datasets.data ?? []).map(item => item.id));
+    const filtered = selectedDatasetIds.filter(id => availableDatasetIds.has(id));
+    if (filtered.length !== selectedDatasetIds.length) {
+      setSelectedDatasetIds(filtered.length ? filtered : datasetId ? [datasetId] : []);
+    } else if (!filtered.length && datasetId) {
+      setSelectedDatasetIds([datasetId]);
+    }
+  }, [multiDatasetMode, datasets.data, datasetId, selectedDatasetIds]);
+
+  useEffect(() => {
+    const availableAlgorithms = new Set((algorithms.data ?? []).map(item => item.id));
+    if (algorithm && availableAlgorithms.has(algorithm)) {
+      algorithmRestorePending.current = false;
+      return;
+    }
+
+    if (!algorithms.data?.length && algorithmRestorePending.current) {
+      return;
+    }
+
+    const persistedAlgorithm = localStorage.getItem(SELECTED_ALGORITHM_KEY);
+    if (persistedAlgorithm && availableAlgorithms.has(persistedAlgorithm)) {
+      setAlgorithm(persistedAlgorithm);
+      algorithmRestorePending.current = false;
+      return;
+    }
+
+    const fallbackAlgorithm = (algorithms.data ?? []).find(item => item.available)?.id ?? "random_forest";
+    setAlgorithm(fallbackAlgorithm);
+    algorithmRestorePending.current = false;
+    if (fallbackAlgorithm) {
+      localStorage.setItem(SELECTED_ALGORITHM_KEY, fallbackAlgorithm);
+    } else {
+      localStorage.removeItem(SELECTED_ALGORITHM_KEY);
+    }
+  }, [algorithm, algorithms.data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,10 +197,57 @@ export default function Retraining() {
   }, []);
 
   useEffect(() => {
-    if (!datasetId && datasets.data?.length) {
-      setDatasetId(datasets.data[0].id);
-    }
-  }, [datasetId, datasets.data]);
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!activeTraining) return;
+      event.preventDefault();
+      event.returnValue = leaveWarningMessage;
+    };
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (!activeTraining) return;
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+      const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!target) return;
+
+      const anchor = target as HTMLAnchorElement;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
+
+      const nextUrl = new URL(anchor.href, window.location.href);
+      if (nextUrl.origin !== window.location.origin) return;
+
+      const currentUrl = new URL(window.location.href);
+      if (nextUrl.pathname === currentUrl.pathname && nextUrl.search === currentUrl.search && nextUrl.hash === currentUrl.hash) return;
+
+      event.preventDefault();
+      if (window.confirm(leaveWarningMessage)) {
+        window.location.assign(nextUrl.href);
+      }
+    };
+
+    const handlePopState = () => {
+      if (ignoreNextPopstateRef.current) {
+        ignoreNextPopstateRef.current = false;
+        return;
+      }
+
+      if (!activeTraining) return;
+      if (window.confirm(leaveWarningMessage)) return;
+
+      ignoreNextPopstateRef.current = true;
+      window.history.go(1);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("click", handleDocumentClick, true);
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("click", handleDocumentClick, true);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [activeTraining, leaveWarningMessage]);
 
   useEffect(() => {
     if (!job?.jobId || FINISHED_STATUSES.includes(job.status)) return;
@@ -87,17 +267,77 @@ export default function Retraining() {
           toast.error(latest.error ?? "Training failed");
         }
       } catch (e) {
-        const message = (e as Error).message;
-        setJob(prev => prev ? { ...prev, status: "failed", error: message } : prev);
-        toast.error(message);
+        if (e instanceof ApiUnavailableError) return;
+        console.warn("Retraining status refresh failed", e);
       }
     }, 3000);
     return () => clearInterval(id);
-  }, [job?.jobId, job?.status]);
+  }, [job?.jobId, job?.status, current, history]);
+
+  useEffect(() => {
+    if (!job?.jobId || FINISHED_STATUSES.includes(job.status)) return;
+
+    const controller = new AbortController();
+    const cfg = getConfig();
+    const token = getAuthToken();
+    if (!cfg.apiBaseUrl) return undefined;
+
+    (async () => {
+      try {
+        const response = await fetch(`${cfg.apiBaseUrl}/api/retrain/jobs/${job.jobId}/events`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.body) return;
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split(/\n\n+/);
+          buffer = parts.pop() ?? "";
+
+          for (const eventChunk of parts) {
+            for (const event of parseSseEventChunk(eventChunk)) {
+              if (!event.data) continue;
+              if (event.event === "job") {
+                try {
+                  const next = JSON.parse(event.data) as TrainingJob;
+                  setJob(next);
+                  if (next.status === "completed") {
+                    localStorage.removeItem(TRAINING_JOB_KEY);
+                    current.refresh();
+                    history.refresh();
+                  }
+                  if (next.status === "failed") {
+                    localStorage.removeItem(TRAINING_JOB_KEY);
+                  }
+                } catch {
+                  /* ignore malformed stream data */
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        /* keep polling fallback active */
+      }
+    })();
+
+    return () => controller.abort();
+  }, [job?.jobId, job?.status, current, history]);
 
   const selectedDataset = datasets.data?.find(d => d.id === datasetId);
+  const selectedMultiDatasets = (datasets.data ?? []).filter(d => selectedDatasetIds.includes(d.id));
   const latestCandidate = job?.model ?? history.data?.find(item => item.status === "candidate");
   const m = current.data;
+  const trainingProgress = Math.max(0, Math.min(100, job?.progress ?? (job?.status === "completed" ? 100 : job?.status === "failed" ? 100 : 0)));
+  const trainingStage = job?.stageLabel || (job?.status === "queued" ? "Job queued" : job?.status === "running" ? "Training in progress" : job?.status === "completed" ? "Training completed" : job?.status === "failed" ? "Training failed" : "Idle");
 
   const deleteDataset = async (datasetIdToDelete: string) => {
     confirmAdminAction({
@@ -175,15 +415,16 @@ export default function Retraining() {
   };
 
  const trigger = async () => {
-  if (!datasetId) return;
+  const selectedIdsToTrain = multiDatasetMode ? selectedDatasetIds : [datasetId].filter(Boolean);
+  if (!selectedIdsToTrain.length) return;
 
   setBusy("train");
   try {
-    const r = await sentinel.retrain({
-      datasetName: datasetId,
-      algorithm,
-      maxRows: 0,
-    });
+    const r = await sentinel.retrain(
+      multiDatasetMode && selectedIdsToTrain.length > 1
+        ? { datasetIds: selectedIdsToTrain, algorithm, maxRows: 0 }
+        : { datasetName: selectedIdsToTrain[0], algorithm, maxRows: 0 },
+    );
 
     localStorage.setItem(TRAINING_JOB_KEY, r.jobId);
 
@@ -200,6 +441,13 @@ export default function Retraining() {
     setBusy(null);
   }
 };
+
+  const toggleDatasetSelection = (datasetIdToToggle: string, checked: boolean) => {
+    setSelectedDatasetIds(prev => {
+      const next = checked ? Array.from(new Set([...prev, datasetIdToToggle])) : prev.filter(id => id !== datasetIdToToggle);
+      return next;
+    });
+  };
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -260,6 +508,37 @@ export default function Retraining() {
               </Select>
             </div>
 
+            <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm">
+              <Checkbox
+                id="multi-dataset-mode"
+                checked={multiDatasetMode}
+                onCheckedChange={value => setMultiDatasetMode(Boolean(value))}
+              />
+              <Label htmlFor="multi-dataset-mode" className="cursor-pointer">Multi Dataset Mode</Label>
+            </div>
+
+            {multiDatasetMode && (
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+                  Select one or more datasets for combined training
+                </div>
+                <div className="max-h-44 space-y-2 overflow-auto pr-1">
+                  {(datasets.data ?? []).map(d => (
+                    <label key={d.id} className="flex items-center gap-2 rounded-md border border-border/60 px-2 py-2 text-sm hover:bg-secondary/30">
+                      <Checkbox
+                        checked={selectedDatasetIds.includes(d.id)}
+                        onCheckedChange={value => toggleDatasetSelection(d.id, Boolean(value))}
+                      />
+                      <span className="truncate">{d.name} <span className="text-muted-foreground">({d.source})</span></span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {selectedDatasetIds.length} selected
+                </p>
+              </div>
+            )}
+
             {selectedDataset && (
               <div className="rounded-md border border-border bg-secondary/40 p-3 text-xs">
                 <div className="flex items-center gap-2 font-medium">
@@ -311,7 +590,11 @@ export default function Retraining() {
 
           <div className="mt-4 rounded-md border border-border bg-secondary/40 p-4 text-sm">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Selected dataset</p>
-            <p className="mt-1 font-mono">{selectedDataset?.name ?? "No dataset selected"}</p>
+            <p className="mt-1 font-mono">
+              {multiDatasetMode
+                ? (selectedMultiDatasets.length ? `${selectedMultiDatasets.length} dataset(s) selected` : "No dataset selected")
+                : (selectedDataset?.name ?? "No dataset selected")}
+            </p>
             <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">Selected model</p>
             <p className="mt-1 font-mono">{(algorithms.data ?? []).find(item => item.id === algorithm)?.name ?? algorithm}</p>
           </div>
@@ -321,6 +604,13 @@ export default function Retraining() {
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Training job</p>
               <p className="mt-1 font-mono">{job.jobId}</p>
               <p className="mt-1">Status: <span className="font-medium">{job.status}</span></p>
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{trainingStage}</span>
+                  <span>{trainingProgress}%</span>
+                </div>
+                <Progress value={trainingProgress} className="h-3" />
+              </div>
               {job.error && <p className="mt-2 text-destructive">{job.error}</p>}
             </div>
           )}
@@ -346,7 +636,7 @@ export default function Retraining() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Trigger model retraining?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This queues {(algorithms.data ?? []).find(item => item.id === algorithm)?.name ?? algorithm} training using <span className="font-mono">{selectedDataset?.name}</span>. Promote the candidate from Model Management after validation.
+                    This queues {(algorithms.data ?? []).find(item => item.id === algorithm)?.name ?? algorithm} training using <span className="font-mono">{multiDatasetMode ? `${selectedDatasetIds.length} selected dataset(s)` : (selectedDataset?.name ?? datasetId)}</span>. Promote the candidate from Model Management after validation.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

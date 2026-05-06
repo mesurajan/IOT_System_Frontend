@@ -29,8 +29,8 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const queryClient = new QueryClient();
 
 function ShellRoute({ children }: { children: React.ReactNode }) {
-  const { online } = useBackendStatus();
-  return <AppLayout online={online}>{children}</AppLayout>;
+  const { online, checked } = useBackendStatus();
+  return <AppLayout online={online} checked={checked}>{children}</AppLayout>;
 }
 
 function RootRedirect() {

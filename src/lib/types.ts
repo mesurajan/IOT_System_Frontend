@@ -92,6 +92,9 @@ export interface TrainingJob {
   createdAt?: string;
   startedAt?: string;
   completedAt?: string;
+  progress?: number;
+  stage?: string;
+  stageLabel?: string;
   version?: string;
   error?: string;
   logs?: string;

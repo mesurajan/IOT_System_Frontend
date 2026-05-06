@@ -2,7 +2,7 @@
  * Service layer. Tries real API first; on ApiUnavailableError, falls back to mock data
  * so the UI stays functional during development and demos.
  */
-import { api, ApiUnavailableError, getAuthToken } from "./api";
+import { api, apiRequest, ApiUnavailableError, getAuthToken } from "./api";
 import { getConfig } from "./config";
 import {
   mockAlerts, mockAudit, mockCurrentModel, mockHealth, mockLogs,
@@ -173,16 +173,16 @@ export const sentinel = {
     return raw.job;
   },
 
-  retrain: async (payload: { datasetName?: string; datasetId?: string; maxRows?: number; algorithm?: string }) => {
+  retrain: async (payload: { datasetName?: string; datasetId?: string; datasetIds?: string[]; maxRows?: number; algorithm?: string }) => {
     try { return await api.post<{ jobId: string; status: string }>("/api/retrain", payload); }
     catch (err) {
       if (err instanceof ApiUnavailableError) return { jobId: `mock-job-${Date.now()}`, status: "queued" };
       throw err;
     }
   },
-  retrainJob: (jobId: string) => api.get<TrainingJob>(`/api/retrain/jobs/${jobId}`),
+  retrainJob: async (jobId: string) => apiRequest<TrainingJob>(`/api/retrain/jobs/${jobId}`, { timeoutMs: 30000 }),
   latestRetrainJob: async () => {
-    const raw = await api.get<{ job: TrainingJob | null }>("/api/retrain/jobs/latest", { active: true });
+    const raw = await apiRequest<{ job: TrainingJob | null }>("/api/retrain/jobs/latest", { query: { active: true }, timeoutMs: 30000 });
     return raw.job;
   },
   uploadDataset: async (file: File) => {

@@ -61,7 +61,7 @@ const NAV_GROUPS = [
   },
 ];
 
-export function AppLayout({ children, online }: { children: ReactNode; online: boolean }) {
+export function AppLayout({ children, online, checked }: { children: ReactNode; online: boolean; checked: boolean }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -177,7 +177,7 @@ export function AppLayout({ children, online }: { children: ReactNode; online: b
       {/* MAIN */}
       <div className="flex flex-1 flex-col">
 
-        <header className="flex h-16 items-center justify-between border-b px-4">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 
           <p className="text-sm font-semibold">{cfg.appName}</p>
 
@@ -187,16 +187,18 @@ export function AppLayout({ children, online }: { children: ReactNode; online: b
             <div
               className={cn(
                 "hidden sm:flex items-center gap-2 rounded-md px-2.5 py-1 text-xs border",
-                online
-                  ? "border-green-500/30 bg-green-500/10 text-green-500"
-                  : "border-red-500/30 bg-red-500/10 text-red-500"
+                !checked
+                  ? "border-border bg-muted/40 text-muted-foreground"
+                  : online
+                    ? "border-green-500/30 bg-green-500/10 text-green-500"
+                    : "border-red-500/30 bg-red-500/10 text-red-500"
               )}
             >
               <span className={cn(
                 "h-2 w-2 rounded-full",
-                online ? "bg-green-500" : "bg-red-500"
+                !checked ? "bg-muted-foreground" : online ? "bg-green-500" : "bg-red-500"
               )} />
-              {online ? "Backend Connected" : "Backend Offline"}
+              {!checked ? "Checking backend..." : online ? "Backend Connected" : "Backend Offline"}
             </div>
 
             {/* 🔔 Bell */}
