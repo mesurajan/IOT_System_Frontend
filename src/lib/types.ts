@@ -120,6 +120,10 @@ export interface DetectionJob {
   modelVersion?: string;
   modelAlgorithm?: string;
   modelDataset?: string;
+  datasetId?: string;
+  progress?: number;
+  stage?: string;
+  stageLabel?: string;
 }
 
 export interface WiresharkInterface {

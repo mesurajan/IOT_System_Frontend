@@ -20,43 +20,49 @@ interface NavItem {
   roles?: ("admin" | "analyst")[];
 }
 
+interface NavGroup {
+  title: string;
+  roles?: ("admin" | "analyst")[];
+  items: NavItem[];
+}
+
+
 const NAV_GROUPS = [
   {
     title: "Main Overview",
     items: [
       { to: "/dashboard", label: "Dashboard", icon: <Activity className="h-4 w-4" /> },
+      { to: "/alerts", label: "Alerts", icon: <AlertTriangle className="h-4 w-4" /> },
+      { to: "/kibana", label: "Kibana", icon: <BarChart3 className="h-4 w-4" /> },
     ],
   },
   {
-    title: "Monitoring",
+    title: "Analysis",
     items: [
-      { to: "/alerts", label: "Alerts", icon: <AlertTriangle className="h-4 w-4" /> },
+    
+     
+      { to: "/detection", label: "Replay Detection", icon: <PlaySquare className="h-4 w-4" /> },
+      { to: "/live-capture", label: "Live Capture", icon: <RadioTower className="h-4 w-4" /> },
       { to: "/logs", label: "Logs", icon: <ScrollText className="h-4 w-4" /> },
-      { to: "/detection", label: "Replay Detection", icon: <PlaySquare className="h-4 w-4" />, roles: ["admin"] },
-      { to: "/live-capture", label: "Live Capture", icon: <RadioTower className="h-4 w-4" />, roles: ["admin"] },
+      
     ],
   },
   {
     title: "Models",
     items: [
-      { to: "/retraining", label: "Retraining", icon: <Cpu className="h-4 w-4" />, roles: ["admin"] },
-      { to: "/models", label: "Model Management", icon: <Layers className="h-4 w-4" />, roles: ["admin"] },
+      { to: "/retraining", label: "Retraining", icon: <Cpu className="h-4 w-4" />},
+      { to: "/models", label: "Model Management", icon: <Layers className="h-4 w-4" />},
       
     ],
   },
   {
-    title: "System",
-    items: [
-      { to: "/kibana", label: "Kibana", icon: <BarChart3 className="h-4 w-4" /> },
-      { to: "/health", label: "System Health", icon: <HeartPulse className="h-4 w-4" />, roles: ["admin"] },
-      { to: "/audit", label: "Audit History", icon: <History className="h-4 w-4" />, roles: ["admin"] },
-    ],
-  },
-  {
-    title: "Admin",
+    title: "Administration",
+    roles: ["admin"],
     items: [
       { to: "/users", label: "Admin Users", icon: <Database className="h-4 w-4" />, roles: ["admin"] },
       { to: "/settings", label: "Settings", icon: <Settings className="h-4 w-4" />, roles: ["admin"] },
+      { to: "/health", label: "System Health", icon: <HeartPulse className="h-4 w-4" />, roles: ["admin"] },
+      { to: "/audit", label: "Audit History", icon: <History className="h-4 w-4" />, roles: ["admin"] },
     ],
   },
 ];
@@ -111,7 +117,30 @@ export function AppLayout({ children, online, checked }: { children: ReactNode; 
 
   const alertBadge = unreadAlerts > 99 ? "99+" : String(unreadAlerts);
 
-  const visibleNav = NAV_GROUPS;
+      const visibleNav = useMemo(() => {
+        return NAV_GROUPS
+          .filter(group => {
+            if (group.roles && (!user?.role || !group.roles.includes(user.role))) {
+              return false;
+            }
+
+            return true;
+          })
+          .map(group => {
+            
+            const items = group.items.filter(item => {
+              if (!item.roles) return true;
+              if (!user?.role) return false;
+              return item.roles.includes(user.role);
+            });
+
+            return {
+              ...group,
+              items
+            };
+          })
+          .filter(group => group.items.length > 0); // ✅ hide empty sections
+      }, [user?.role]);
 
   return (
     <div className="flex min-h-screen w-full bg-background">

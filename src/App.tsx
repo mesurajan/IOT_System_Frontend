@@ -78,10 +78,10 @@ const App = () => {
               
 
                 <Route path="/monitoring" element={<Navigate to="/detection" replace />} />
-                <Route path="/detection" element={<ProtectedRoute roles={["admin"]}><ShellRoute><ReplayDetection /></ShellRoute></ProtectedRoute>} />
-                <Route path="/live-capture" element={<ProtectedRoute roles={["admin"]}><ShellRoute><LiveCapture /></ShellRoute></ProtectedRoute>} />
-                <Route path="/retraining" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Retraining /></ShellRoute></ProtectedRoute>} />
-                <Route path="/models" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Models /></ShellRoute></ProtectedRoute>} />
+                 <Route path="/detection" element={<ProtectedRoute><ShellRoute><ReplayDetection /></ShellRoute></ProtectedRoute>} />
+                <Route path="/live-capture" element={<ProtectedRoute><ShellRoute><LiveCapture /></ShellRoute></ProtectedRoute>} />
+                <Route path="/retraining" element={<ProtectedRoute><ShellRoute><Retraining /></ShellRoute></ProtectedRoute>} />
+                <Route path="/models" element={<ProtectedRoute><ShellRoute><Models /></ShellRoute></ProtectedRoute>} />
                 <Route path="/health" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Health /></ShellRoute></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute roles={["admin"]}><ShellRoute><Audit /></ShellRoute></ProtectedRoute>} />
 

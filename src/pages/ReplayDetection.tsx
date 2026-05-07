@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { Database, Loader2, Play, RefreshCw, Square, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -23,7 +24,39 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const REPLAY_JOB_KEY = "sentinel.activeReplayJobId";
+const REPLAY_MULTI_MODE_KEY = "sentinel.replay.multiDatasetMode";
+const REPLAY_SELECTED_IDS_KEY = "sentinel.replay.selectedDatasetIds";
+const REPLAY_QUEUE_KEY = "sentinel.replay.queueState";
 const FINISHED_STATUSES = ["completed", "failed", "stopped"];
+
+type ReplayQueueState = {
+  datasetIds: string[];
+  currentIndex: number;
+};
+
+function readJsonArray(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(item => String(item)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function readReplayQueue(): ReplayQueueState | null {
+  try {
+    const raw = localStorage.getItem(REPLAY_QUEUE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ReplayQueueState>;
+    const datasetIds = Array.isArray(parsed.datasetIds) ? parsed.datasetIds.map(item => String(item)).filter(Boolean) : [];
+    const currentIndex = Number.isFinite(Number(parsed.currentIndex)) ? Math.max(0, Number(parsed.currentIndex)) : 0;
+    return datasetIds.length ? { datasetIds, currentIndex } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function ReplayDetection() {
   const [logsLimit, setLogsLimit] = useState(50);
@@ -50,12 +83,69 @@ useEffect(() => {
   const [busy, setBusy] = useState<"upload" | "start" | "stop" | "delete" | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
+  const [multiDatasetMode, setMultiDatasetMode] = useState(() => localStorage.getItem(REPLAY_MULTI_MODE_KEY) === "true");
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>(() => readJsonArray(REPLAY_SELECTED_IDS_KEY));
+  const [replayQueue, setReplayQueue] = useState<ReplayQueueState | null>(() => readReplayQueue());
   const [deleteConfirm, setDeleteConfirm] = useState<{
     title: string;
     description: string;
     logIds: string[];
   } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const advancingReplayRef = useRef(false);
+
+  useEffect(() => {
+    localStorage.setItem(REPLAY_MULTI_MODE_KEY, String(multiDatasetMode));
+  }, [multiDatasetMode]);
+
+  useEffect(() => {
+    localStorage.setItem(REPLAY_SELECTED_IDS_KEY, JSON.stringify(selectedDatasetIds));
+  }, [selectedDatasetIds]);
+
+  const leaveWarningMessage = "Replay detection is still running. Are you sure you want to leave the page?";
+  const activeReplayDatasets = multiDatasetMode
+    ? (datasets.data ?? []).filter(item => selectedDatasetIds.includes(item.id))
+    : (datasets.data ?? []).find(item => item.id === datasetId)
+      ? [(datasets.data ?? []).find(item => item.id === datasetId)!]
+      : [];
+
+  const persistQueue = useCallback((queue: ReplayQueueState | null) => {
+    setReplayQueue(queue);
+    if (queue) {
+      localStorage.setItem(REPLAY_QUEUE_KEY, JSON.stringify(queue));
+    } else {
+      localStorage.removeItem(REPLAY_QUEUE_KEY);
+    }
+  }, []);
+
+  const startReplayForDataset = useCallback(async (targetDatasetId: string, queueState?: ReplayQueueState) => {
+    if (!targetDatasetId) return;
+    setBusy("start");
+    try {
+      const result = await sentinel.startDatasetDetection({ dataset: "raw", datasetId: targetDatasetId, delay: 0.1, reportEvery: 50, modelVersion });
+      localStorage.setItem(REPLAY_JOB_KEY, result.jobId);
+      if (queueState) persistQueue(queueState);
+      const modelInfo = modelHistory.data?.find(item => item.version === modelVersion) ?? currentModel.data;
+      setJob({
+        jobId: result.jobId,
+        mode: "dataset",
+        status: "queued",
+        logs: `[INFO] Dataset detection queued for ${datasets.data?.find(item => item.id === targetDatasetId)?.name ?? targetDatasetId}`,
+        modelVersion,
+        modelAlgorithm: modelInfo?.algorithm,
+        modelDataset: modelInfo?.datasetName,
+        datasetId: targetDatasetId,
+        stage: "queued",
+        stageLabel: "Dataset queued",
+        progress: queueState ? Math.round(((queueState.currentIndex + 1) / queueState.datasetIds.length) * 100) : 0,
+      });
+      toast.success(queueState ? `Queued ${queueState.currentIndex + 1} of ${queueState.datasetIds.length}` : "Dataset replay started");
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }, [currentModel.data, datasets.data, modelHistory.data, modelVersion, persistQueue]);
 
   useEffect(() => {
     if (!datasetId && datasets.data?.length) setDatasetId(datasets.data[0].id);
@@ -67,6 +157,8 @@ useEffect(() => {
     const fallback = currentModel.data?.version || production?.version || modelHistory.data?.[0]?.version || "";
     if (fallback) setModelVersion(fallback);
   }, [currentModel.data, modelHistory.data, modelVersion]);
+
+  const selectedDataset = datasets.data?.find(item => item.id === datasetId);
 
   useEffect(() => {
     const availableLogIds = new Set((logs.data ?? []).map(item => item.id));
@@ -88,7 +180,9 @@ useEffect(() => {
         const latest = await sentinel.detectionJob(savedJobId);
         if (cancelled || latest.mode !== "dataset") return;
         setJob(latest);
-        if (FINISHED_STATUSES.includes(latest.status)) localStorage.removeItem(REPLAY_JOB_KEY);
+        if (FINISHED_STATUSES.includes(latest.status)) {
+          localStorage.removeItem(REPLAY_JOB_KEY);
+        }
       } catch {
         localStorage.removeItem(REPLAY_JOB_KEY);
       }
@@ -96,6 +190,42 @@ useEffect(() => {
     restoreJob();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!job?.jobId || !replayQueue || job.status !== "completed") return;
+
+    if (advancingReplayRef.current) return;
+    advancingReplayRef.current = true;
+
+    const nextIndex = replayQueue.currentIndex + 1;
+    if (nextIndex >= replayQueue.datasetIds.length) {
+      localStorage.removeItem(REPLAY_JOB_KEY);
+      persistQueue(null);
+      advancingReplayRef.current = false;
+      return;
+    }
+
+    const nextQueue = { datasetIds: replayQueue.datasetIds, currentIndex: nextIndex };
+    persistQueue(nextQueue);
+    void startReplayForDataset(nextQueue.datasetIds[nextIndex], nextQueue).finally(() => {
+      advancingReplayRef.current = false;
+    });
+  }, [job?.jobId, job?.status, replayQueue, persistQueue, startReplayForDataset]);
+
+  useEffect(() => {
+    const activeReplay = Boolean(job?.jobId && !FINISHED_STATUSES.includes(job.status)) || Boolean(replayQueue && replayQueue.currentIndex < replayQueue.datasetIds.length);
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!activeReplay) return;
+      event.preventDefault();
+      event.returnValue = leaveWarningMessage;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [job?.jobId, job?.status, replayQueue, leaveWarningMessage]);
 
   useEffect(() => {
     if (!job?.jobId || FINISHED_STATUSES.includes(job.status)) return;
@@ -114,13 +244,31 @@ useEffect(() => {
     return () => clearInterval(id);
   }, [job?.jobId, job?.status, refreshLogs, refreshStats]);
 
-  const selectedDataset = datasets.data?.find(item => item.id === datasetId);
+  useEffect(() => {
+    if (job?.status !== "completed" || !replayQueue || advancingReplayRef.current) return;
+
+    const nextIndex = replayQueue.currentIndex + 1;
+    if (nextIndex >= replayQueue.datasetIds.length) {
+      persistQueue(null);
+      return;
+    }
+
+    advancingReplayRef.current = true;
+    const nextQueue = { datasetIds: replayQueue.datasetIds, currentIndex: nextIndex };
+    persistQueue(nextQueue);
+    void startReplayForDataset(nextQueue.datasetIds[nextIndex], nextQueue).finally(() => {
+      advancingReplayRef.current = false;
+    });
+  }, [job?.status, replayQueue, persistQueue, startReplayForDataset]);
+
   const selectedModel = modelHistory.data?.find(item => item.version === modelVersion) ?? currentModel.data;
   const running = job ? ["queued", "running"].includes(job.status) : false;
+  const activeReplay = running || Boolean(replayQueue && replayQueue.currentIndex < replayQueue.datasetIds.length);
   const visibleLogs = logs.data ?? [];
   const selectedCount = selectedLogIds.length;
   const allLogsSelected = visibleLogs.length > 0 && selectedCount === visibleLogs.length;
   const someLogsSelected = selectedCount > 0 && selectedCount < visibleLogs.length;
+  const currentReplayIndex = replayQueue ? Math.min(replayQueue.currentIndex + 1, replayQueue.datasetIds.length) : 0;
 
   const toggleLogSelection = (logId: string) => {
     setSelectedLogIds(previous => (
@@ -205,26 +353,22 @@ useEffect(() => {
   };
 
   const startReplay = async () => {
-    if (!datasetId) return;
-    setBusy("start");
-    try {
-      const result = await sentinel.startDatasetDetection({ dataset: "raw", datasetId, delay: 0.1, reportEvery: 50, modelVersion });
-      localStorage.setItem(REPLAY_JOB_KEY, result.jobId);
-      setJob({
-        jobId: result.jobId,
-        mode: "dataset",
-        status: "queued",
-        logs: "[INFO] Dataset detection queued",
-        modelVersion,
-        modelAlgorithm: selectedModel?.algorithm,
-        modelDataset: selectedModel?.datasetName,
-      });
-      toast.success("Dataset replay started");
-    } catch (error) {
-      toast.error((error as Error).message);
-    } finally {
-      setBusy(null);
+    if (running || busy !== null) return;
+
+    const targetIds = multiDatasetMode ? selectedDatasetIds : [datasetId].filter(Boolean);
+    if (!targetIds.length) {
+      toast.info("Select at least one dataset to replay");
+      return;
     }
+
+    const queueState = targetIds.length > 1 ? { datasetIds: targetIds, currentIndex: 0 } : null;
+    if (queueState) {
+      persistQueue(queueState);
+    } else {
+      persistQueue(null);
+    }
+
+    await startReplayForDataset(targetIds[0], queueState ?? undefined);
   };
 
   const stopReplay = async () => {
@@ -232,6 +376,7 @@ useEffect(() => {
     try {
       await sentinel.stopMonitoring(job?.jobId);
       localStorage.removeItem(REPLAY_JOB_KEY);
+      persistQueue(null);
       if (job) setJob({ ...job, status: "stopped", logs: `${job.logs ?? ""}\n[INFO] Stop requested` });
       toast.success("Replay stopped");
       refreshAll();
@@ -282,7 +427,7 @@ useEffect(() => {
       </div>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <StatCard label="Replay State" value={running ? "Active" : "Paused"} tone={running ? "success" : "warning"} hint={job?.jobId ?? "No active replay"} />
+        <StatCard label="Replay State" value={activeReplay ? "Active" : "Paused"} tone={activeReplay ? "success" : "warning"} hint={job?.jobId ?? "No active replay"} />
         <StatCard label="Events In Range" value={stats.data?.totalTraffic?.toLocaleString() ?? "-"} tone="info" />
         <StatCard label="Anomalies In Range" value={stats.data?.anomalies?.toLocaleString() ?? "-"} tone="danger" />
       </section>
@@ -303,6 +448,35 @@ useEffect(() => {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm">
+              <Checkbox
+                id="multi-dataset-mode"
+                checked={multiDatasetMode}
+                onCheckedChange={value => setMultiDatasetMode(Boolean(value))}
+              />
+              <Label htmlFor="multi-dataset-mode" className="cursor-pointer">Multi Dataset Mode</Label>
+            </div>
+
+            {multiDatasetMode && (
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+                  Select one or more datasets for sequential replay
+                </div>
+                <div className="max-h-48 space-y-2 overflow-auto pr-1">
+                  {(datasets.data ?? []).map(item => (
+                    <label key={item.id} className="flex items-center gap-2 rounded-md border border-border/60 px-2 py-2 text-sm hover:bg-secondary/30">
+                      <Checkbox
+                        checked={selectedDatasetIds.includes(item.id)}
+                        onCheckedChange={checked => setSelectedDatasetIds(previous => checked ? Array.from(new Set([...previous, item.id])) : previous.filter(id => id !== item.id))}
+                      />
+                      <span className="truncate">{item.name} <span className="text-muted-foreground">({item.source})</span></span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">{selectedDatasetIds.length} selected</p>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>Detection model</Label>
@@ -331,6 +505,21 @@ useEffect(() => {
               </div>
             )}
 
+            {multiDatasetMode && activeReplayDatasets.length > 0 && (
+              <div className="rounded-md border border-border bg-secondary/40 p-3 text-xs">
+                <div className="font-medium">Selected datasets</div>
+                <p className="mt-1 text-muted-foreground">{activeReplayDatasets.length} dataset(s) selected for replay.</p>
+                <div className="mt-2 space-y-1">
+                  {activeReplayDatasets.map(item => (
+                    <div key={item.id} className="flex items-center justify-between gap-3 rounded bg-background/60 px-2 py-1">
+                      <span className="truncate">{item.name}</span>
+                      <span className="text-muted-foreground">{(item.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label>Upload labelled CSV</Label>
               <div className="flex gap-2">
@@ -343,26 +532,44 @@ useEffect(() => {
             </div>
 
             <div className="flex flex-wrap gap-2 pt-2">
-              <Button onClick={startReplay} disabled={!datasetId || busy !== null || running} className="bg-success text-success-foreground hover:opacity-90">
+              <Button onClick={startReplay} disabled={busy !== null || activeReplay || (!multiDatasetMode ? !datasetId : selectedDatasetIds.length === 0)} className="bg-success text-success-foreground hover:opacity-90">
                 {busy === "start" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                 Start Replay Detection
               </Button>
-              <Button variant="destructive" onClick={stopReplay} disabled={!running || busy !== null}>
+              <Button variant="destructive" onClick={stopReplay} disabled={!(activeReplay || running || replayQueue) || busy !== null}>
                 {busy === "stop" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Square className="mr-2 h-4 w-4" />}
                 Stop
               </Button>
             </div>
+
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card">
-          <div className="border-b border-border p-4">
-            <h2 className="text-sm font-semibold">Replay job log</h2>
-            <p className="text-xs text-muted-foreground">{job ? `${job.jobId} - ${job.status}` : "Start replay detection to see output here."}</p>
+        <div className="rounded-lg border border-border bg-card p-6">
+          <h2 className="text-sm font-semibold">Replay logs</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Live replay output stays visible here, even before a scan starts.
+          </p>
+
+          <div className="mt-4 rounded-md border border-border bg-secondary/40 p-4 text-sm">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Selected dataset</p>
+            <p className="mt-1 font-mono">
+              {multiDatasetMode
+                ? (activeReplayDatasets.length ? `${activeReplayDatasets.length} dataset(s) selected` : "No dataset selected")
+                : (selectedDataset?.name ?? "No dataset selected")}
+            </p>
+            <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">Selected model</p>
+            <p className="mt-1 font-mono">{selectedModel ? `${selectedModel.version} (${selectedModel.algorithm})` : modelVersion}</p>
           </div>
-          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-muted-foreground">
-            {job?.logs || "Replay logs will appear here live."}
-          </pre>
+
+          <div className="mt-4 rounded-md border border-border bg-background">
+            <div className="border-b border-border px-4 py-2">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Replay log</p>
+            </div>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-muted-foreground">
+              {job?.logs || "Replay logs will appear here live."}
+            </pre>
+          </div>
         </div>
       </section>
 

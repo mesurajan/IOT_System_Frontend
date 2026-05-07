@@ -75,9 +75,8 @@ export default function Retraining() {
   const fileRef = useRef<HTMLInputElement>(null);
   const datasetRestorePending = useRef(true);
   const algorithmRestorePending = useRef(true);
-  const ignoreNextPopstateRef = useRef(false);
+  const multiDatasetRestorePending = useRef(true);
   const activeTraining = Boolean(job?.jobId && !FINISHED_STATUSES.includes(job.status));
-  const leaveWarningMessage = "Training is still running. Are you sure you want to leave the page?";
 
   useEffect(() => {
     if (datasetId) {
@@ -132,14 +131,20 @@ export default function Retraining() {
   }, [datasetId, datasets.data]);
 
   useEffect(() => {
-    if (!multiDatasetMode) return;
+    if (!multiDatasetMode) {
+      multiDatasetRestorePending.current = false;
+      return;
+    }
     const availableDatasetIds = new Set((datasets.data ?? []).map(item => item.id));
+    if (!datasets.data?.length && multiDatasetRestorePending.current) {
+      return;
+    }
+
     const filtered = selectedDatasetIds.filter(id => availableDatasetIds.has(id));
     if (filtered.length !== selectedDatasetIds.length) {
       setSelectedDatasetIds(filtered.length ? filtered : datasetId ? [datasetId] : []);
-    } else if (!filtered.length && datasetId) {
-      setSelectedDatasetIds([datasetId]);
     }
+    multiDatasetRestorePending.current = false;
   }, [multiDatasetMode, datasets.data, datasetId, selectedDatasetIds]);
 
   useEffect(() => {
@@ -195,59 +200,6 @@ export default function Retraining() {
     restoreJob();
     return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!activeTraining) return;
-      event.preventDefault();
-      event.returnValue = leaveWarningMessage;
-    };
-
-    const handleDocumentClick = (event: MouseEvent) => {
-      if (!activeTraining) return;
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-
-      const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!target) return;
-
-      const anchor = target as HTMLAnchorElement;
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
-
-      const nextUrl = new URL(anchor.href, window.location.href);
-      if (nextUrl.origin !== window.location.origin) return;
-
-      const currentUrl = new URL(window.location.href);
-      if (nextUrl.pathname === currentUrl.pathname && nextUrl.search === currentUrl.search && nextUrl.hash === currentUrl.hash) return;
-
-      event.preventDefault();
-      if (window.confirm(leaveWarningMessage)) {
-        window.location.assign(nextUrl.href);
-      }
-    };
-
-    const handlePopState = () => {
-      if (ignoreNextPopstateRef.current) {
-        ignoreNextPopstateRef.current = false;
-        return;
-      }
-
-      if (!activeTraining) return;
-      if (window.confirm(leaveWarningMessage)) return;
-
-      ignoreNextPopstateRef.current = true;
-      window.history.go(1);
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    document.addEventListener("click", handleDocumentClick, true);
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      document.removeEventListener("click", handleDocumentClick, true);
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [activeTraining, leaveWarningMessage]);
 
   useEffect(() => {
     if (!job?.jobId || FINISHED_STATUSES.includes(job.status)) return;
@@ -589,12 +541,36 @@ export default function Retraining() {
           <p className="mt-1 text-xs text-muted-foreground">Training runs on the backend. The production model is changed only when you promote a completed candidate.</p>
 
           <div className="mt-4 rounded-md border border-border bg-secondary/40 p-4 text-sm">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Selected dataset</p>
-            <p className="mt-1 font-mono">
-              {multiDatasetMode
-                ? (selectedMultiDatasets.length ? `${selectedMultiDatasets.length} dataset(s) selected` : "No dataset selected")
-                : (selectedDataset?.name ?? "No dataset selected")}
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              {multiDatasetMode ? "Selected datasets" : "Selected dataset"}
             </p>
+            {multiDatasetMode ? (
+              selectedMultiDatasets.length ? (
+                <div className="mt-2 space-y-2">
+                  <p className="font-mono text-sm">{selectedMultiDatasets.length} dataset(s) selected</p>
+                  <div className="max-h-44 space-y-2 overflow-auto pr-1">
+                    {selectedMultiDatasets.map(item => (
+                      <div key={item.id} className="rounded-md border border-border/70 bg-background/60 px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2 font-medium">
+                          <Database className="h-3.5 w-3.5" /> {item.filename}
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{item.path}</p>
+                        <p className="mt-1 text-muted-foreground">{(item.sizeBytes / 1024 / 1024).toFixed(2)} MB</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-1 font-mono">No dataset selected</p>
+              )
+            ) : (
+              <>
+                <p className="mt-1 font-mono">{selectedDataset?.name ?? "No dataset selected"}</p>
+                {selectedDataset && (
+                  <p className="mt-1 text-muted-foreground">{selectedDataset.path} • {(selectedDataset.sizeBytes / 1024 / 1024).toFixed(2)} MB</p>
+                )}
+              </>
+            )}
             <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">Selected model</p>
             <p className="mt-1 font-mono">{(algorithms.data ?? []).find(item => item.id === algorithm)?.name ?? algorithm}</p>
           </div>
